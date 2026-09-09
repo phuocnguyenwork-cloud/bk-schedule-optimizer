@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BK Schedule Optimizer — Hỗ trợ sắp xếp lịch học HCMUT</title>
+  <meta name="description" content="Công cụ hỗ trợ sắp xếp lịch đăng ký môn học HCMUT. Paste dữ liệu từ trang ĐK, nhận lịch tối ưu.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+    <!-- ═══ Header ═══ -->
+    <header class="header">
+      <div class="header__inner">
+        <div class="header__logo">
+          <span class="header__icon">📅</span>
+          <div>
+            <h1 class="header__title">BK Schedule</h1>
+            <p class="header__subtitle">Hỗ trợ sắp xếp lịch học HCMUT</p>
+          </div>
+        </div>
+        <div class="header__stats" id="headerStats">
+          <!-- Filled by JS -->
+        </div>
+      </div>
+    </header>
+
+    <!-- ═══ Main Content ═══ -->
+    <main class="main">
+      <!-- ── Step 1: Input ── -->
+      <section class="card card--input" id="inputSection">
+        <div class="card__header">
+          <span class="step-badge">1</span>
+          <div>
+            <h2 class="card__title">Nhập dữ liệu môn học</h2>
+            <p class="card__desc">Vào trang đăng ký môn học → bôi đen toàn bộ bảng lịch của <strong>một môn</strong> → Ctrl+C → dán vào ô bên dưới</p>
+          </div>
+        </div>
+        <div class="input-area">
+          <textarea 
+            id="courseInput" 
+            class="textarea" 
+            placeholder="Dán (Ctrl+V) dữ liệu môn học vào đây...
+
+Ví dụ:
+STT		Mã MH	Tên MH	Số tín chỉ	BB/TC
+1		CO3093	Mạng máy tính	3.0
+CO3093 - Mạng máy tính
+Nhóm lớp	DK/ Sĩ số	Ngôn ngữ	...
+A01_A01	40/40	V	A01	..."
+            rows="8"
+          ></textarea>
+          <div class="input-actions">
+            <button class="btn btn--primary" id="btnParse" disabled>
+              <span class="btn__icon">⚡</span> Phân tích dữ liệu
+            </button>
+            <button class="btn btn--ghost" id="btnClear">
+              <span class="btn__icon">🗑️</span> Xóa
+            </button>
+            <button class="btn btn--ghost" id="btnSample">
+              <span class="btn__icon">📋</span> Dữ liệu mẫu
+            </button>
+          </div>
+        </div>
+        <!-- Parse warnings -->
+        <div class="warnings" id="warnings" style="display:none">
+          <div class="warnings__title">⚠️ Cảnh báo khi parse</div>
+          <ul class="warnings__list" id="warningsList"></ul>
+        </div>
+      </section>
+
+      <!-- ── Course List ── -->
+      <section class="card card--courses" id="coursesSection" style="display:none">
+        <div class="card__header">
+          <span class="step-badge">2</span>
+          <div>
+            <h2 class="card__title">Danh sách môn học đã thêm</h2>
+            <p class="card__desc">Thêm từng môn một. Mỗi môn sẽ hiện bên dưới với các nhóm lớp.</p>
+          </div>
+        </div>
+        <div class="courses-list" id="coursesList">
+          <!-- Rendered by JS -->
+        </div>
+      </section>
+
+      <!-- ── Parse Result Detail ── -->
+      <section class="card card--result" id="resultSection" style="display:none">
+        <div class="card__header">
+          <div>
+            <h2 class="card__title" id="resultTitle">Kết quả phân tích</h2>
+            <p class="card__desc" id="resultDesc"></p>
+          </div>
+          <button class="btn btn--small btn--ghost" id="btnCollapseResult">Thu gọn</button>
+        </div>
+        <div class="result-filters" id="resultFilters">
+          <span class="filter-label">Lọc nhóm:</span>
+          <label class="filter-checkbox"><input type="checkbox" id="filterA" checked> Nhóm A</label>
+          <label class="filter-checkbox"><input type="checkbox" id="filterCC" checked> Nhóm CC</label>
+          <label class="filter-checkbox"><input type="checkbox" id="filterL" checked> Nhóm L</label>
+          <label class="filter-checkbox"><input type="checkbox" id="filterTN" checked> Nhóm TN</label>
+        </div>
+        <div class="result-content" id="resultContent">
+          <!-- Rendered by JS -->
+        </div>
+      </section>
+
+      <!-- ── Step 3: Optimize ── -->
+      <section class="card card--optimize" id="optimizeSection" style="display:none">
+        <div class="card__header">
+          <span class="step-badge">3</span>
+          <div>
+            <h2 class="card__title">Tối ưu lịch học</h2>
+            <p class="card__desc">Chọn các tiêu chí bên dưới để hệ thống tìm ra lịch học phù hợp nhất.</p>
+          </div>
+        </div>
+        <div class="optimize-criteria">
+          <label class="criteria-checkbox"><input type="checkbox" id="critFewestDays"> Số ngày học trong tuần ít nhất</label>
+          <label class="criteria-checkbox"><input type="checkbox" id="critMostDays"> Số ngày học trong tuần nhiều nhất</label>
+          <label class="criteria-checkbox"><input type="checkbox" id="critEarlyWeek"> Ưu tiên các ngày đầu tuần</label>
+          <label class="criteria-checkbox"><input type="checkbox" id="critLateWeek"> Ưu tiên các ngày cuối tuần</label>
+          <label class="criteria-checkbox"><input type="checkbox" id="critMorning"> Ưu tiên buổi sáng</label>
+          <label class="criteria-checkbox"><input type="checkbox" id="critAfternoon"> Ưu tiên buổi trưa/chiều</label>
+          <label class="criteria-checkbox"><input type="checkbox" id="critClose"> Các môn ngành gần nhau</label>
+          <label class="criteria-checkbox"><input type="checkbox" id="critFar"> Các môn không ngành gần nhau</label>
+        </div>
+        <div class="optimize-actions">
+          <button class="btn btn--primary" id="btnOptimize" style="width: 100%;">
+            <span class="btn__icon">✨</span> Tối ưu lịch học
+          </button>
+        </div>
+      </section>
+    </main>
+
+    <!-- ═══ Footer ═══ -->
+    <footer class="footer">
+      <p>BK Schedule Optimizer &mdash; Tool hỗ trợ sinh viên HCMUT sắp xếp lịch học</p>
+    </footer>
+  </div>
+
+  <script src="src/parser.js?v=8"></script>
+  <script src="src/optimizer_model.js?v=8"></script>
+  <script src="src/app.js?v=8"></script>
+</body>
+</html>
