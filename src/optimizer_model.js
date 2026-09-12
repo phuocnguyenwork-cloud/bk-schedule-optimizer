@@ -597,7 +597,174 @@
   }
 
   // ──────────────────────────────────────────────
-  // 5. PUBLIC EXPORTS
+  // 5. SOLVER ENGINE — Backtracking (DFS) + Branch & Prune
+  // ──────────────────────────────────────────────
+
+  /**
+   * Kiểm tra nhanh xem một nhóm lớp mới có xung đột với bất kỳ nhóm lớp
+   * nào đã chọn trước đó hay không (incremental check).
+   * 
+   * Thay vì gọi validateAssignment() trên toàn bộ danh sách mỗi lần,
+   * ta chỉ kiểm tra nhóm mới vs. tất cả nhóm đã chọn → O(k) thay vì O(k²).
+   * 
+   * @param {Object} newGroup - Nhóm lớp mới muốn thêm vào
+   * @param {Object[]} selectedGroups - Các nhóm lớp đã chọn trước đó
+   * @returns {boolean} true nếu hợp lệ (không xung đột), false nếu xung đột
+   */
+  function canAddGroup(newGroup, selectedGroups) {
+    for (let i = 0; i < selectedGroups.length; i++) {
+      if (hasGroupConflict(newGroup, selectedGroups[i])) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Thuật toán giải lịch học tối ưu bằng Backtracking (DFS) kết hợp Branch & Prune.
+   * 
+   * Mô tả thuật toán:
+   * ─────────────────
+   * 1. Mô hình hóa (Modeling):
+   *    - Input: Mảng các Course đã parse (từ parser.js).
+   *    - Mỗi Course có nhiều ClassGroup (nhóm lớp). Ta cần chọn đúng 1 nhóm/môn.
+   *    - Gọi modelCourse() để gắn bitmask cho mỗi schedule.
+   * 
+   * 2. Duyệt tổ hợp (DFS Backtracking):
+   *    - Duyệt đệ quy qua từng môn (courseIndex = 0, 1, ..., N-1).
+   *    - Tại mỗi bước: thử lần lượt từng classGroup của môn hiện tại.
+   *    - Kiểm tra ràng buộc cứng với canAddGroup() (pruning): 
+   *      nếu xung đột → bỏ qua nhánh này (Branch & Prune).
+   *    - Nếu hợp lệ → đệ quy tiếp cho môn tiếp theo.
+   *    - Khi đã chọn đủ N môn → thu thập giải pháp hợp lệ.
+   * 
+   * 3. Chấm điểm & xếp hạng (Ranking):
+   *    - Duyệt qua tất cả giải pháp hợp lệ, tính Total_Score(L) bằng evaluateSchedule().
+   *    - Sắp xếp giảm dần theo totalScore.
+   *    - Trả về top K kết quả (mặc định top 10).
+   * 
+   * @param {Object[]} allCourses - Mảng các Course thô từ parser (chưa model)
+   * @param {Object.<string, boolean|number>} activeCriteria - Tiêu chí đánh giá
+   * @param {Object} [options={}] - Tùy chọn
+   * @param {number} [options.maxSolutions=500] - Số giải pháp tối đa tìm kiếm
+   * @param {number} [options.topK=10] - Số kết quả top trả về
+   * @param {number} [options.timeoutMs=10000] - Thời gian tối đa (ms)
+   * @returns {{ 
+   *   results: Array<{ groups: Object[], totalScore: number, breakdown: Object, rank: number }>,
+   *   stats: { totalValid: number, totalExplored: number, elapsedMs: number, timedOut: boolean }
+   * }}
+   */
+  function solveSchedule(allCourses, activeCriteria, options = {}) {
+    const maxSolutions = options.maxSolutions || 500;
+    const topK = options.topK || 10;
+    const timeoutMs = options.timeoutMs || 10000;
+
+    const startTime = Date.now();
+
+    // ── Bước 1: Mô hình hóa tất cả các Course ──
+    const modeledCourses = allCourses.map(c => modelCourse(c));
+
+    // Nếu không có môn nào → trả về rỗng
+    if (modeledCourses.length === 0) {
+      return {
+        results: [],
+        stats: { totalValid: 0, totalExplored: 0, elapsedMs: 0, timedOut: false }
+      };
+    }
+
+    // ── Bước 2: DFS Backtracking ──
+    const validSolutions = [];  // Chứa tất cả giải pháp hợp lệ
+    let totalExplored = 0;      // Tổng số nhánh đã duyệt (bao gồm bị cắt)
+    let timedOut = false;
+
+    /**
+     * Hàm đệ quy Backtracking.
+     * @param {number} courseIdx - Index của môn đang xét (0..N-1)
+     * @param {Object[]} currentSelection - Danh sách nhóm lớp đã chọn
+     */
+    function backtrack(courseIdx, currentSelection) {
+      // Kiểm tra timeout
+      if (Date.now() - startTime > timeoutMs) {
+        timedOut = true;
+        return;
+      }
+
+      // Kiểm tra đã tìm đủ số giải pháp tối đa chưa
+      if (validSolutions.length >= maxSolutions) {
+        return;
+      }
+
+      // ── Base case: Đã chọn xong tất cả các môn ──
+      if (courseIdx === modeledCourses.length) {
+        // Đây là một giải pháp hợp lệ → lưu lại (clone selection)
+        validSolutions.push([...currentSelection]);
+        return;
+      }
+
+      const course = modeledCourses[courseIdx];
+      const groups = course.classGroups;
+
+      // ── Recursive case: Thử từng nhóm lớp của môn hiện tại ──
+      for (let g = 0; g < groups.length; g++) {
+        totalExplored++;
+
+        const candidateGroup = groups[g];
+
+        // ── Branch & Prune: Kiểm tra ràng buộc cứng ──
+        // Nếu nhóm mới xung đột với bất kỳ nhóm đã chọn → cắt nhánh
+        if (!canAddGroup(candidateGroup, currentSelection)) {
+          continue; // Prune: bỏ qua nhánh này
+        }
+
+        // Hợp lệ → thêm vào danh sách chọn và đệ quy tiếp
+        currentSelection.push(candidateGroup);
+        backtrack(courseIdx + 1, currentSelection);
+        currentSelection.pop(); // Backtrack: gỡ nhóm vừa thêm
+
+        // Thoát sớm nếu đã đạt giới hạn
+        if (validSolutions.length >= maxSolutions || timedOut) {
+          return;
+        }
+      }
+    }
+
+    // Bắt đầu DFS từ môn đầu tiên
+    backtrack(0, []);
+
+    const elapsedMs = Date.now() - startTime;
+
+    // ── Bước 3: Chấm điểm & Xếp hạng ──
+    const scoredResults = validSolutions.map((groups) => {
+      const { totalScore, breakdown } = evaluateSchedule(groups, activeCriteria);
+      return {
+        groups,       // Danh sách các nhóm lớp trong giải pháp
+        totalScore,   // Tổng điểm
+        breakdown,    // Chi tiết điểm từng tiêu chí
+      };
+    });
+
+    // Sắp xếp giảm dần theo totalScore
+    scoredResults.sort((a, b) => b.totalScore - a.totalScore);
+
+    // Gán rank và cắt lấy top K
+    const topResults = scoredResults.slice(0, topK).map((result, idx) => ({
+      ...result,
+      rank: idx + 1,
+    }));
+
+    return {
+      results: topResults,
+      stats: {
+        totalValid: validSolutions.length,
+        totalExplored,
+        elapsedMs,
+        timedOut,
+      },
+    };
+  }
+
+  // ──────────────────────────────────────────────
+  // 6. PUBLIC EXPORTS
   // ──────────────────────────────────────────────
 
   const BKOptimizerModel = {
@@ -612,6 +779,7 @@
     hasCampusTravelConflict,
     hasGroupConflict,
     validateAssignment,
+    canAddGroup,
 
     // Soft constraints (Criteria scoring)
     scoreFewestDays,
@@ -626,6 +794,9 @@
     // Composite evaluation
     evaluateSchedule,
     SCORING_FUNCTIONS,
+
+    // Solver
+    solveSchedule,
   };
 
   // Hỗ trợ môi trường Browser lẫn Node.js/Test

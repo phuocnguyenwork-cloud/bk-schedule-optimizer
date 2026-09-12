@@ -118,7 +118,7 @@ const RE_GROUP_TABLE_HEADER = /^Nhóm lớp[\t\s]/;
  * Dòng dữ liệu nhóm lớp: "A01_A01 40/40 V ..."
  * Chấp nhận tab hoặc space giữa groupCode và số đăng ký
  */
-const RE_GROUP_DATA = /^(\S+_\S+)[\t ]+(\d+)\/(\d+)[\t ]+/;
+const RE_GROUP_DATA = /^([A-Za-z]+\d+(?:_[A-Za-z]*\d+)?)[\t ]+(\d+)\/(\d+)[\t ]+/;
 
 /** Dòng header bảng lịch học: "Thứ Tiết Phòng ..." */
 const RE_SCHEDULE_HEADER = /^Thứ[\t ]+Tiết[\t ]+/;

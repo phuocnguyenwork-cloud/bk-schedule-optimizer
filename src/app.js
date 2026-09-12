@@ -423,7 +423,336 @@ function showToast(message, isError = false) {
   setTimeout(() => toast.remove(), 3000);
 }
 
+// ──────────────────────────────────────────────
+// Optimize Handler
+// ──────────────────────────────────────────────
+
+
+if ($btnOptimize) {
+  $btnOptimize.addEventListener('click', handleOptimize);
+}
+
+function handleOptimize() {
+  if (allCourses.length === 0) {
+    showToast('Vui lòng thêm ít nhất 1 môn học trước khi tối ưu!', true);
+    return;
+  }
+
+  // Thu thập tiêu chí đã chọn
+  const criteriaIds = [
+    'critFewestDays', 'critMostDays', 'critEarlyWeek', 'critLateWeek',
+    'critMorning', 'critAfternoon', 'critClose', 'critFar'
+  ];
+  const activeCriteria = {};
+  let hasCriteria = false;
+  for (const id of criteriaIds) {
+    const el = document.getElementById(id);
+    if (el && el.checked) {
+      activeCriteria[id] = 1;
+      hasCriteria = true;
+    }
+  }
+
+  if (!hasCriteria) {
+    showToast('Vui lòng chọn ít nhất 1 tiêu chí tối ưu!', true);
+    return;
+  }
+
+  // Disable nút trong lúc chạy
+  $btnOptimize.disabled = true;
+  $btnOptimize.innerHTML = '<span class="btn__icon">⏳</span> Đang tối ưu...';
+
+  // Chạy solver (dùng setTimeout để UI kịp update)
+  setTimeout(() => {
+    try {
+      const result = window.BKOptimizerModel.solveSchedule(allCourses, activeCriteria, {
+        maxSolutions: 500,
+        topK: 10,
+        timeoutMs: 15000,
+      });
+
+      console.group('🧠 DEBUG: Kết quả Solver');
+      console.log(`Tổng giải pháp hợp lệ: ${result.stats.totalValid}`);
+      console.log(`Tổng nhánh đã duyệt: ${result.stats.totalExplored}`);
+      console.log(`Thời gian: ${result.stats.elapsedMs}ms`);
+      console.log(`Timeout: ${result.stats.timedOut}`);
+      console.log(`Top ${result.results.length} kết quả:`);
+      result.results.forEach(r => {
+        console.log(`  #${r.rank}: Score=${r.totalScore}`, r.breakdown,
+          r.groups.map(g => `${g.courseCode}(${g.groupCode})`).join(', '));
+      });
+      console.groupEnd();
+
+      renderOptimizeResults(result);
+
+    } catch (err) {
+      console.error('Solver error:', err);
+      showToast('Lỗi khi chạy thuật toán tối ưu: ' + err.message, true);
+    } finally {
+      $btnOptimize.disabled = false;
+      $btnOptimize.innerHTML = '<span class="btn__icon">✨</span> Tối ưu lịch học';
+    }
+  }, 50);
+}
+
+// ──────────────────────────────────────────────
+// Optimize Result Renderers
+// ──────────────────────────────────────────────
+
+/** @type {number|null} Index of currently selected schedule result */
+let activeResultIndex = 0;
+
+function renderOptimizeResults(solverResult) {
+  // Tạo hoặc lấy container kết quả
+  let $optimizeResult = document.getElementById('optimizeResultSection');
+  if (!$optimizeResult) {
+    $optimizeResult = document.createElement('section');
+    $optimizeResult.id = 'optimizeResultSection';
+    $optimizeResult.className = 'card card--optimize-result';
+    $optimizeSection.parentNode.insertBefore($optimizeResult, $optimizeSection.nextSibling);
+  }
+
+  const { results, stats } = solverResult;
+
+  if (results.length === 0) {
+    $optimizeResult.innerHTML = `
+      <div class="card__header">
+        <span class="step-badge">4</span>
+        <div>
+          <h2 class="card__title">Kết quả tối ưu</h2>
+          <p class="card__desc">Không tìm thấy giải pháp hợp lệ nào!</p>
+        </div>
+      </div>
+      <div class="optimize-empty">
+        <div class="optimize-empty__icon">😢</div>
+        <p>Không có tổ hợp nhóm lớp nào thỏa mãn tất cả ràng buộc cứng (trùng lịch, di chuyển cơ sở).</p>
+        <p class="optimize-empty__hint">Thử giảm bớt số môn hoặc kiểm tra lại dữ liệu đầu vào.</p>
+      </div>
+    `;
+    $optimizeResult.style.display = 'block';
+    $optimizeResult.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return;
+  }
+
+  // Thống kê
+  const statsHtml = `
+    <div class="optimize-stats">
+      <div class="stat-chip stat-chip--solver">
+        🔍 <span class="stat-chip__value">${stats.totalValid}</span> lịch hợp lệ
+      </div>
+      <div class="stat-chip stat-chip--solver">
+        🌿 <span class="stat-chip__value">${stats.totalExplored.toLocaleString()}</span> nhánh duyệt
+      </div>
+      <div class="stat-chip stat-chip--solver">
+        ⏱️ <span class="stat-chip__value">${stats.elapsedMs}</span>ms
+      </div>
+      ${stats.timedOut ? '<div class="stat-chip stat-chip--warning">⚠️ Timeout — kết quả chưa đầy đủ</div>' : ''}
+    </div>
+  `;
+
+  // Thanh chọn phương án (Tab bar)
+  const tabsHtml = results.map((r, i) => `
+    <button class="result-tab ${i === 0 ? 'result-tab--active' : ''}" 
+            onclick="selectResult(${i})" 
+            data-result-idx="${i}">
+      <span class="result-tab__rank">#${r.rank}</span>
+      <span class="result-tab__score">${r.totalScore.toFixed(1)} điểm</span>
+    </button>
+  `).join('');
+
+  $optimizeResult.innerHTML = `
+    <div class="card__header">
+      <span class="step-badge">4</span>
+      <div>
+        <h2 class="card__title">Kết quả tối ưu</h2>
+        <p class="card__desc">Tìm thấy ${stats.totalValid} lịch hợp lệ. Hiển thị Top ${results.length}.</p>
+      </div>
+    </div>
+    ${statsHtml}
+    <div class="result-tabs" id="resultTabs">
+      ${tabsHtml}
+    </div>
+    <div class="result-detail" id="optimizeResultDetail">
+      <!-- Rendered by selectResult() -->
+    </div>
+  `;
+
+  // Lưu results vào window để selectResult truy cập
+  window._solverResults = results;
+  activeResultIndex = 0;
+
+  $optimizeResult.style.display = 'block';
+  renderResultDetail(0);
+  $optimizeResult.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function selectResult(idx) {
+  activeResultIndex = idx;
+
+  // Update tab active state
+  const tabs = document.querySelectorAll('.result-tab');
+  tabs.forEach((tab, i) => {
+    tab.classList.toggle('result-tab--active', i === idx);
+  });
+
+  renderResultDetail(idx);
+}
+
+function renderResultDetail(idx) {
+  const results = window._solverResults;
+  if (!results || !results[idx]) return;
+
+  const result = results[idx];
+  const $detail = document.getElementById('optimizeResultDetail');
+  if (!$detail) return;
+
+  // Bảng phân tích điểm
+  const CRITERIA_LABELS = {
+    critFewestDays: '📅 Số ngày học ít nhất',
+    critMostDays: '📅 Số ngày học nhiều nhất',
+    critEarlyWeek: '🌅 Ưu tiên đầu tuần',
+    critLateWeek: '🌆 Ưu tiên cuối tuần',
+    critMorning: '☀️ Ưu tiên buổi sáng',
+    critAfternoon: '🌙 Ưu tiên buổi chiều',
+    critClose: '🔗 Môn ngành gần nhau',
+    critFar: '🔗 Môn không ngành gần nhau',
+  };
+
+  const breakdownRows = Object.entries(result.breakdown)
+    .map(([key, val]) => `
+      <tr>
+        <td>${CRITERIA_LABELS[key] || key}</td>
+        <td class="td-score ${val >= 0 ? 'score--positive' : 'score--negative'}">${val >= 0 ? '+' : ''}${val.toFixed(1)}</td>
+      </tr>
+    `).join('');
+
+  // Danh sách nhóm lớp được chọn
+  const groupsList = result.groups.map(g => `
+    <div class="selected-group">
+      <span class="selected-group__code">${escapeHtml(g.courseCode)}</span>
+      <span class="selected-group__name">${escapeHtml(g.courseName)}</span>
+      <span class="selected-group__group badge--groups">${escapeHtml(g.groupCode)}</span>
+    </div>
+  `).join('');
+
+  // Timetable Grid
+  const timetableHtml = renderTimetableGrid(result.groups);
+
+  $detail.innerHTML = `
+    <div class="result-detail__header">
+      <h3 class="result-detail__title">Phương án #${result.rank}</h3>
+      <div class="result-detail__total-score">
+        Tổng điểm: <strong>${result.totalScore.toFixed(1)}</strong>
+      </div>
+    </div>
+
+    <div class="result-detail__grid">
+      <!-- Left: Timetable -->
+      <div class="result-detail__timetable">
+        <h4>📋 Lịch học theo tuần</h4>
+        ${timetableHtml}
+      </div>
+
+      <!-- Right: Analysis -->
+      <div class="result-detail__analysis">
+        <h4>📊 Phân tích điểm</h4>
+        <table class="breakdown-table">
+          <thead><tr><th>Tiêu chí</th><th>Điểm</th></tr></thead>
+          <tbody>${breakdownRows}</tbody>
+          <tfoot>
+            <tr>
+              <td><strong>Tổng</strong></td>
+              <td class="td-score"><strong>${result.totalScore.toFixed(1)}</strong></td>
+            </tr>
+          </tfoot>
+        </table>
+
+        <h4>🎯 Nhóm lớp được chọn</h4>
+        <div class="selected-groups-list">
+          ${groupsList}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * Render lưới thời khóa biểu (Timetable Grid) từ danh sách nhóm lớp.
+ * Cột: Thứ 2 → CN (7 cột). Hàng: Tiết 1 → 12/16.
+ */
+function renderTimetableGrid(groups) {
+  // Xác định max tiết (thường 12, nhưng check 16)
+  let maxPeriod = 12;
+  const grid = {}; // key: "day_period" → { courseCode, groupCode, room, campus, color }
+
+  // Bảng màu cho mỗi môn
+  const courseColors = {};
+  const COLOR_PALETTE = [
+    '#4f8cff', '#ff6b6b', '#51cf66', '#ffd43b', '#cc5de8', 
+    '#ff922b', '#22b8cf', '#f06595', '#7950f2', '#20c997'
+  ];
+  let colorIdx = 0;
+
+  for (const g of groups) {
+    if (!courseColors[g.courseCode]) {
+      courseColors[g.courseCode] = COLOR_PALETTE[colorIdx % COLOR_PALETTE.length];
+      colorIdx++;
+    }
+    const color = courseColors[g.courseCode];
+
+    for (const s of g.schedules) {
+      for (const p of s.periods) {
+        if (p > maxPeriod) maxPeriod = p;
+        const key = `${s.dayOfWeek}_${p}`;
+        grid[key] = {
+          courseCode: g.courseCode,
+          groupCode: g.groupCode,
+          room: s.room,
+          campus: s.campus,
+          color,
+        };
+      }
+    }
+  }
+
+  const days = [
+    { num: 2, label: 'T2' }, { num: 3, label: 'T3' }, { num: 4, label: 'T4' },
+    { num: 5, label: 'T5' }, { num: 6, label: 'T6' }, { num: 7, label: 'T7' },
+    { num: 8, label: 'CN' },
+  ];
+
+  let html = '<table class="timetable">';
+  html += '<thead><tr><th class="timetable__period-header">Tiết</th>';
+  for (const d of days) {
+    html += `<th class="timetable__day-header">${d.label}</th>`;
+  }
+  html += '</tr></thead><tbody>';
+
+  for (let p = 1; p <= maxPeriod; p++) {
+    html += `<tr><td class="timetable__period-cell">${p}</td>`;
+    for (const d of days) {
+      const key = `${d.num}_${p}`;
+      const cell = grid[key];
+      if (cell) {
+        html += `<td class="timetable__cell timetable__cell--filled" style="background-color: ${cell.color}20; border-left: 3px solid ${cell.color};">
+          <div class="timetable__course-code" style="color: ${cell.color}">${escapeHtml(cell.courseCode)}</div>
+          <div class="timetable__cell-detail">${escapeHtml(cell.groupCode)}</div>
+          <div class="timetable__cell-detail">${escapeHtml(cell.room)} CS${escapeHtml(cell.campus)}</div>
+        </td>`;
+      } else {
+        html += '<td class="timetable__cell timetable__cell--empty"></td>';
+      }
+    }
+    html += '</tr>';
+  }
+
+  html += '</tbody></table>';
+  return html;
+}
+
 // Make functions available globally for inline onclick handlers
 window.selectCourse = selectCourse;
 window.removeCourse = removeCourse;
 window.toggleGroup = toggleGroup;
+window.selectResult = selectResult;
+
