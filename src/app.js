@@ -14,6 +14,80 @@ const allCourses = [];
 let activeCourseIndex = null;
 
 // ──────────────────────────────────────────────
+// State Persistence (localStorage, TTL 24h)
+// ──────────────────────────────────────────────
+
+const StateManager = (() => {
+  const CACHE_KEY = 'BK_SCHEDULE_STATE';
+  const TTL_MS = 24 * 60 * 60 * 1000; // 24 giờ
+
+  /**
+   * Lưu toàn bộ trạng thái hiện tại vào localStorage.
+   * @param {object} [solverResult] - Kết quả solver (tuỳ chọn, chỉ lưu khi đã chạy tối ưu).
+   */
+  function save(solverResult) {
+    try {
+      const criteria = {};
+      ['critFewestDays','critMostDays','critEarlyWeek','critLateWeek',
+       'critMorning','critAfternoon','critClose','critFar'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) criteria[id] = el.checked;
+      });
+
+      const payload = {
+        timestamp: Date.now(),
+        courses: allCourses,
+        criteria,
+        solverResult: solverResult || window._solverResults || null,
+      };
+      localStorage.setItem(CACHE_KEY, JSON.stringify(payload));
+    } catch (e) {
+      // localStorage đầy hoặc bị chặn — không crash ứng dụng
+      console.warn('[StateManager] Không thể lưu trạng thái:', e.message);
+    }
+  }
+
+  /**
+   * Tải trạng thái từ localStorage.
+   * @returns {object|null} payload đã lưu, hoặc null nếu không có / đã hết hạn.
+   */
+  function load() {
+    try {
+      const raw = localStorage.getItem(CACHE_KEY);
+      if (!raw) return null;
+      const data = JSON.parse(raw);
+      if (!data || !data.timestamp) return null;
+      if (Date.now() - data.timestamp > TTL_MS) {
+        localStorage.removeItem(CACHE_KEY);
+        return null;
+      }
+      return data;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /** Xoá toàn bộ session đã lưu. */
+  function clear() {
+    localStorage.removeItem(CACHE_KEY);
+  }
+
+  /**
+   * Trả về chuỗi thời gian còn lại theo định dạng "Xh Ym" hoặc null.
+   * @param {number} timestamp
+   */
+  function remainingTime(timestamp) {
+    const remainMs = TTL_MS - (Date.now() - timestamp);
+    if (remainMs <= 0) return null;
+    const h = Math.floor(remainMs / 3600000);
+    const m = Math.floor((remainMs % 3600000) / 60000);
+    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+  }
+
+  return { save, load, clear, remainingTime };
+})();
+
+// ──────────────────────────────────────────────
 // DOM Elements
 // ──────────────────────────────────────────────
 
@@ -192,6 +266,10 @@ function handleParse() {
     activeCourseIndex = allCourses.length - 1;
     renderCourseDetail(activeCourseIndex);
     renderCoursesList();
+
+    // Lưu trạng thái sau khi thêm môn
+    StateManager.save();
+    updateSessionBadge();
   }
 }
 
@@ -390,6 +468,10 @@ function removeCourse(idx) {
   renderCoursesList();
   updateHeaderStats();
   showToast(`Đã xóa môn ${course.code}`);
+
+  // Cập nhật trạng thái đã lưu sau khi xóa môn
+  StateManager.save();
+  updateSessionBadge();
 }
 
 function toggleGroup(id) {
@@ -484,6 +566,10 @@ function handleOptimize() {
       console.groupEnd();
 
       renderOptimizeResults(result);
+
+      // Lưu kết quả tối ưu vào localStorage
+      StateManager.save(result.results);
+      updateSessionBadge();
 
     } catch (err) {
       console.error('Solver error:', err);
@@ -750,9 +836,107 @@ function renderTimetableGrid(groups) {
   return html;
 }
 
+// ──────────────────────────────────────────────
+// Session Badge & Clear Session
+// ──────────────────────────────────────────────
+
+/**
+ * Cập nhật badge hiển thị thời gian còn lại của session hiện tại.
+ * Badge được render vào phần tử #sessionBadge (nếu tồn tại trong HTML).
+ */
+function updateSessionBadge() {
+  const $badge = document.getElementById('sessionBadge');
+  if (!$badge) return;
+
+  const raw = localStorage.getItem('BK_SCHEDULE_STATE');
+  if (!raw) {
+    $badge.style.display = 'none';
+    return;
+  }
+  try {
+    const data = JSON.parse(raw);
+    const remaining = StateManager.remainingTime(data.timestamp);
+    if (!remaining) {
+      $badge.style.display = 'none';
+      return;
+    }
+    const courseCount = (data.courses || []).length;
+    $badge.style.display = 'flex';
+    $badge.innerHTML = `
+      <span class="session-badge__info">💾 ${courseCount} môn • còn ${remaining}</span>
+      <button class="session-badge__clear" onclick="clearSession()" title="Xóa session và bắt đầu lại">✕ Xóa</button>
+    `;
+  } catch (e) {
+    $badge.style.display = 'none';
+  }
+}
+
+/**
+ * Xoá toàn bộ dữ liệu session (allCourses, kết quả tối ưu) và làm mới giao diện.
+ */
+function clearSession() {
+  if (!confirm('Bạn chắc chắn muốn xóa toàn bộ dữ liệu phiên hiện tại?\nCác môn học và kết quả tối ưu sẽ bị xóa.')) return;
+
+  StateManager.clear();
+  allCourses.length = 0;
+  activeCourseIndex = null;
+  window._solverResults = null;
+
+  // Ẩn các section đã render
+  $coursesSection.style.display = 'none';
+  $resultSection.style.display = 'none';
+  if ($optimizeSection) $optimizeSection.style.display = 'none';
+  const $optimizeResult = document.getElementById('optimizeResultSection');
+  if ($optimizeResult) $optimizeResult.style.display = 'none';
+
+  updateHeaderStats();
+  updateSessionBadge();
+  showToast('🗑️ Đã xóa toàn bộ dữ liệu phiên.');
+}
+
+// ──────────────────────────────────────────────
+// Auto-restore on Page Load
+// ──────────────────────────────────────────────
+
+(function restoreStateOnLoad() {
+  const saved = StateManager.load();
+  if (!saved) return;
+
+  const { courses, criteria, solverResult } = saved;
+
+  // Khôi phục danh sách môn học
+  if (Array.isArray(courses) && courses.length > 0) {
+    courses.forEach(c => allCourses.push(c));
+    renderCoursesList();
+    updateHeaderStats();
+
+    // Khôi phục tiêu chí đã chọn
+    if (criteria) {
+      Object.entries(criteria).forEach(([id, checked]) => {
+        const el = document.getElementById(id);
+        if (el) el.checked = checked;
+      });
+    }
+
+    // Khôi phục kết quả tối ưu nếu có
+    if (Array.isArray(solverResult) && solverResult.length > 0) {
+      window._solverResults = solverResult;
+      renderOptimizeResults({
+        results: solverResult,
+        stats: { totalValid: solverResult.length, totalExplored: 0, elapsedMs: 0, timedOut: false },
+      });
+      showToast(`♻️ Đã khôi phục ${courses.length} môn & ${solverResult.length} kết quả từ phiên trước.`);
+    } else {
+      showToast(`♻️ Đã khôi phục ${courses.length} môn học từ phiên trước.`);
+    }
+
+    updateSessionBadge();
+  }
+})();
+
 // Make functions available globally for inline onclick handlers
 window.selectCourse = selectCourse;
 window.removeCourse = removeCourse;
 window.toggleGroup = toggleGroup;
 window.selectResult = selectResult;
-
+window.clearSession = clearSession;

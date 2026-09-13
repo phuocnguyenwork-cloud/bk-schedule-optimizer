@@ -139,6 +139,42 @@ body::before {
   gap: 1rem;
 }
 
+/* ── Session Badge ── */
+
+.session-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.75rem;
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: var(--radius-sm);
+  font-size: 0.78rem;
+  animation: fadeIn 0.3s ease;
+}
+
+.session-badge__info {
+  color: var(--accent-emerald);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.session-badge__clear {
+  background: none;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: 4px;
+  color: var(--accent-red);
+  font-size: 0.72rem;
+  padding: 0.15rem 0.45rem;
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+  white-space: nowrap;
+}
+
+.session-badge__clear:hover {
+  background: rgba(239, 68, 68, 0.15);
+}
+
 .stat-chip {
   display: flex;
   align-items: center;
