@@ -544,10 +544,34 @@ function handleOptimize() {
   $btnOptimize.disabled = true;
   $btnOptimize.innerHTML = '<span class="btn__icon">⏳</span> Đang tối ưu...';
 
+  // Lọc nhóm lớp theo tiêu chí (A, L, CC, TN)
+  const showA = $filterA ? $filterA.checked : true;
+  const showCC = $filterCC ? $filterCC.checked : true;
+  const showL = $filterL ? $filterL.checked : true;
+  const showTN = $filterTN ? $filterTN.checked : true;
+
+  const filteredCourses = allCourses.map(course => {
+    const filteredGroups = course.classGroups.filter(group => {
+      const gc = group.groupCode;
+      if (gc.startsWith('CC')) return showCC;
+      if (gc.startsWith('A')) return showA;
+      if (gc.startsWith('L')) return showL;
+      if (gc.startsWith('TN')) return showTN;
+      return true;
+    });
+    return { ...course, classGroups: filteredGroups };
+  });
+
+  // Kiểm tra xem có môn nào bị lọc sạch nhóm lớp không
+  const emptyCourses = filteredCourses.filter(c => c.classGroups.length === 0);
+  if (emptyCourses.length > 0) {
+    showToast(`Môn ${emptyCourses.map(c => c.code).join(', ')} không còn nhóm lớp nào sau khi lọc. Sẽ không có lịch hợp lệ!`, true);
+  }
+
   // Chạy solver (dùng setTimeout để UI kịp update)
   setTimeout(() => {
     try {
-      const result = window.BKOptimizerModel.solveSchedule(allCourses, activeCriteria, {
+      const result = window.BKOptimizerModel.solveSchedule(filteredCourses, activeCriteria, {
         maxSolutions: 500,
         topK: 10,
         timeoutMs: 15000,
