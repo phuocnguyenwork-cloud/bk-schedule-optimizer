@@ -601,6 +601,7 @@ if (typeof module !== 'undefined' && module.exports) {
     formatSchedule,
     formatWeekRanges,
     printParseSummary,
+    course
   };
 }
 

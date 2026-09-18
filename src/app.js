@@ -28,11 +28,11 @@ const StateManager = (() => {
   function save(solverResult) {
     try {
       const criteria = {};
-      ['critFewestDays','critMostDays','critEarlyWeek','critLateWeek',
-       'critMorning','critAfternoon','critClose','critFar'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) criteria[id] = el.checked;
-      });
+      ['critFewestDays', 'critMostDays', 'critEarlyWeek', 'critLateWeek',
+        'critMorning', 'critAfternoon', 'critClose', 'critFar'].forEach(id => {
+          const el = document.getElementById(id);
+          if (el) criteria[id] = el.checked;
+        });
 
       const payload = {
         timestamp: Date.now(),
@@ -798,7 +798,7 @@ function renderTimetableGrid(groups) {
   // Bảng màu cho mỗi môn
   const courseColors = {};
   const COLOR_PALETTE = [
-    '#4f8cff', '#ff6b6b', '#51cf66', '#ffd43b', '#cc5de8', 
+    '#4f8cff', '#ff6b6b', '#51cf66', '#ffd43b', '#cc5de8',
     '#ff922b', '#22b8cf', '#f06595', '#7950f2', '#20c997'
   ];
   let colorIdx = 0;
