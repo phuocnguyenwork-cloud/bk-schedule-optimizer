@@ -34,10 +34,18 @@ const StateManager = (() => {
           if (el) criteria[id] = el.checked;
         });
 
+      // Lưu trạng thái filter nhóm lớp
+      const filters = {};
+      ['filterA', 'filterCC', 'filterL', 'filterTN'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) filters[id] = el.checked;
+      });
+
       const payload = {
         timestamp: Date.now(),
         courses: allCourses,
         criteria,
+        filters,
         solverResult: solverResult || window._solverResults || null,
       };
       localStorage.setItem(CACHE_KEY, JSON.stringify(payload));
@@ -926,7 +934,7 @@ function clearSession() {
   const saved = StateManager.load();
   if (!saved) return;
 
-  const { courses, criteria, solverResult } = saved;
+  const { courses, criteria, filters, solverResult } = saved;
 
   // Khôi phục danh sách môn học
   if (Array.isArray(courses) && courses.length > 0) {
@@ -937,6 +945,14 @@ function clearSession() {
     // Khôi phục tiêu chí đã chọn
     if (criteria) {
       Object.entries(criteria).forEach(([id, checked]) => {
+        const el = document.getElementById(id);
+        if (el) el.checked = checked;
+      });
+    }
+
+    // Khôi phục filter nhóm lớp
+    if (filters) {
+      Object.entries(filters).forEach(([id, checked]) => {
         const el = document.getElementById(id);
         if (el) el.checked = checked;
       });
